@@ -28,13 +28,14 @@ Predicts whether the number of connected components in the graph will increase, 
 1. **Input**  
    Precomputed curvature-based CSV files are stored under:
    RicciResults/ricci_values/<DATASET>/
+   
    The dataset name should follow the pattern:
     <DATASET>_TFR_a<ALPHA>_b<BETA>.csv
     <DATASET>_TFR_a<ALPHA>_b<BETA>_bin1.csv
     ...
     <DATASET>_TFR_a<ALPHA>_b<BETA>_bin10.csv
    
-2. **Sequence Generation**  
+3. **Sequence Generation**  
 The script [`network_parser.py`](src/GraphPulse/GraphPulse/analyzer/network_parser.py) processes each dataset and creates **time-windowed network sequences** in two formats:  
 - **TDA-based sequences** — topological descriptors extracted using *KeplerMapper*.
 - **Raw sequences** — basic structural statistics such as node count, edge count, and average degree per window.  
