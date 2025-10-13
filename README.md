@@ -6,7 +6,6 @@ This repository includes tools to:
 - **Generate daily network snapshots** and extract topological features*. These snapshots capture evolving structural patterns that can be mapped into feature sequences for machine learning.
 - **Label and prepare datasets** for three predictive tasks that capture the structural evolution of dynamic graphs.
 
----
 
 ## Prediction Tasks
 
@@ -23,7 +22,6 @@ It focuses on identifying shifts in activity concentration and the emergence of 
 ### **Task 3 — Connected Components Prediction**
 Predicts whether the number of connected components in the graph will increase, indicating network fragmentation or reduced connectivity.
 
----
 
 ## Pipeline Summary
 
