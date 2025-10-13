@@ -1,4 +1,4 @@
-# Temporal-Ricci-Curvature4
+# Temporal Ricci Curvature
 
 This repository includes tools to:
 - **Compute and bin temporal Forman–Ricci curvature** for blockchain transaction networks.  
