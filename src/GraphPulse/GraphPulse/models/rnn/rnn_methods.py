@@ -28,7 +28,7 @@ BASE_DIR = os.path.abspath(args.base_dir)
 print("Using base directory:", BASE_DIR)
 
 RESULTS_DIR = os.path.join(BASE_DIR, "data/output")
-RESULTS_FILE = os.path.join(RESULTS_DIR, "RNN-Results_AllTasks.csv")
+RESULTS_FILE = os.path.join(RESULTS_DIR, "RNNResultsAllTasks.csv")
 
 TASK_FOLDERS = {
     "task1": {"pretty": "Network Growth Prediction", "folder": "Sequence_task1"},
@@ -66,7 +66,7 @@ class AUCCallback(Callback):
         except ValueError:
             auc_score = float("nan")
         self.auc_scores.append(auc_score)
-        print(f"Epoch {epoch + 1} - Validation AUC: {auc_score:.4f}")
+        print(f"{task_key}Epoch {epoch + 1} - Validation AUC: {auc_score:.4f}")
 
     def get_auc_std(self) -> float:
         vals = [v for v in self.auc_scores if np.isfinite(v)]
@@ -149,7 +149,7 @@ def read_pickle(path):
 # DATA LOADING
 # ============================================================
 
-def assemble_data(task_key, network, normalizer="all"):
+def assemble_data(task_key, network, base_network, normalizer="all"):
     tinfo = TASK_FOLDERS[task_key]
     base_dir = os.path.join(BASE_DIR, tinfo["folder"], network)
     print(f"\n--- Assembling {tinfo['pretty']} | {base_dir}")
@@ -159,12 +159,14 @@ def assemble_data(task_key, network, normalizer="all"):
 
     with open(os.path.join(base_dir, "seq_raw.txt"), "r") as f:
         seq_raw = json.load(f)
+    with open(os.path.join(os.path.join(BASE_DIR, tinfo["folder"], base_network), "seq_raw.txt"), "r") as f:
+        seq_raw_base = json.load(f)
 
     # Directly access the lists
-    y = np.array(seq_tda["LABELS"], dtype=np.float32)
+    y = np.array(seq_raw_base["LABELS"], dtype=np.float32)
 
-    tda_sequences = seq_tda["TDA_SEQUENCE"]["overlap0.2-cube2-cls5"]
-    raw_sequences = seq_raw["RAW_SEQUENCE"]["raw_sequence"]
+    tda_sequences = seq_tda["TDA_SEQUENCE"]["mapper"]
+    raw_sequences = seq_raw["RAW_SEQUENCE"]["raw"]
     # --- Sanity check: ensure TDA and RAW sequences have same length ---
     if len(tda_sequences) != len(raw_sequences):
         print(f"[FATAL ❌] Length mismatch: TDA has {len(tda_sequences)} sequences, RAW has {len(raw_sequences)}.")
@@ -179,7 +181,7 @@ def assemble_data(task_key, network, normalizer="all"):
     assert all(len(seq) == 7 for seq in raw_sequences)
     tda_np = np.array(tda_sequences, dtype=np.float32)
     raw_np = np.array(raw_sequences, dtype=np.float32)
- 
+
 
     n = len(tda_sequences)
     # Diagnostics
@@ -227,7 +229,7 @@ def train_and_log(task_key, network, X, y, diag):
     auc_cb = AUCCallback(validation_data=(X_val, y_val))
 
     t0 = time.time()
-    model.fit(X_tr, y_tr, epochs=80, validation_data=(X_val, y_val),
+    model.fit(X_tr, y_tr, epochs=10, validation_data=(X_val, y_val),
               callbacks=[auc_cb], verbose=0)
     elapsed = time.time() - t0
 
@@ -263,9 +265,11 @@ def train_and_log(task_key, network, X, y, diag):
 
 if __name__ == "__main__":
     for task_key in ["task1", "task2", "task3"]:
+        base_network = NETWORKS[0]
+        print("We are using labels of ", base_network)
         for network in NETWORKS:
             # try:
-                X, y, diag = assemble_data(task_key, network, NORMALIZER_MODE)
+                X, y, diag = assemble_data(task_key, network, base_network, NORMALIZER_MODE)
                 train_and_log(task_key, network, X, y, diag)
             # except Exception as e:
             #     print(f"[Error] {task_key} - {network}: {e}")

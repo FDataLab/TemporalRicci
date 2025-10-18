@@ -149,8 +149,7 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
 
         if num_edges < 3 or num_nodes < 2:
             daily_tda_cache[pd.Timestamp(current_date)] = {
-                f"overlap{kwargs['over_lap']}-cube{kwargs['n_cube']}-cls{kwargs['cls']}": [num_nodes, num_edges,
-                                                                                           num_nodes, num_nodes]
+                "mapper": [num_nodes, num_edges,num_nodes, num_nodes]
             }
             blank_day_counter = blank_day_counter + 1
             continue
@@ -171,7 +170,7 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
         X = pd.DataFrame(records).drop(columns=["nodeID"], errors="ignore")
         if X.shape[0] < 3:
             daily_tda_cache[pd.Timestamp(current_date)] = {
-                f"overlap{kwargs['over_lap']}-cube{kwargs['n_cube']}-cls{kwargs['cls']}": [num_nodes, num_edges,
+                "mapper": [num_nodes, num_edges,
                                                                                            num_nodes, num_nodes]
             }
 
@@ -200,9 +199,7 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
         max_size = max(cluster_sizes) if cluster_sizes else 0
 
         daily_tda_cache[pd.Timestamp(current_date)] = {
-            f"overlap{kwargs['over_lap']}-cube{kwargs['n_cube']}-cls{kwargs['cls']}": [nodes_in_map_graph,
-                                                                                       edges_in_map_graph, max_size,
-                                                                                       avg_size]
+            "mapper": [nodes_in_map_graph,edges_in_map_graph, max_size,avg_size]
         }
 
     duration = time.perf_counter() - t0
@@ -236,22 +233,26 @@ def to_builtin(obj):
 # ============================================================
 # SEQUENCE GENERATION AND LABELING
 # ============================================================
-def create_time_series_rnn_sequence(file: str, dataset_name: str, alpha: float, beta: float,
+def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_file: str, alpha: float, beta: float,
                                     variant_name: str, daily_tda_cache: dict, timings_writer: csv.DictWriter) -> None:
     print(f"Processing {file}")
     start_unix = time.time()
     t0 = time.perf_counter()
 
     csv_path = os.path.join(RICCI_ROOT, dataset_name, file)
+    csv_path_basis = os.path.join(RICCI_ROOT, dataset_name, basis_dataset_file)
     # df = pd.read_csv(csv_path)
     df = pd.read_csv(csv_path)
+    df_basis = pd.read_csv(csv_path_basis)
 
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s").dt.floor("D")
+    df_basis["timestamp"] = pd.to_datetime(df_basis["timestamp"], unit="s").dt.floor("D")
 
     df = df.sort_values("timestamp")
+    df_basis = df_basis.sort_values("timestamp")
     df["value"] = df["value"].astype(float)
 
-    last_date, start_date = df["timestamp"].max(), df["timestamp"].min()
+    last_date, start_date = df_basis["timestamp"].max(), df_basis["timestamp"].min()
     num_windows = max(0, int((last_date - start_date).days - (windowSize + gap + labelWindowSize)))
     prevG, prev_window_df = None, None
     for task_id, name, task_folder in [
@@ -302,9 +303,13 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, alpha: float, 
                     G_day = nx.from_pandas_edgelist(df_win, "from", "to", ["value"], create_using=nx.MultiDiGraph())
                     n = G_day.number_of_nodes()
                     avg_degree_day = 0.0 if n == 0 else sum(dict(G_day.to_undirected().degree()).values()) / n
-                    daily_raws.append({"raw_sequence":[G_day.number_of_nodes(),G_day.number_of_edges(),avg_degree_day]})
+                    daily_raws.append(
+                        {"raw": [G_day.number_of_nodes(), G_day.number_of_edges(), avg_degree_day]})
+
                 else:
-                    print(f"[MISSING] No Mapper found in cache for date: {key_date}. This should not have happened.")
+                    #today does not exist (for the binned data)
+                    daily_raws.append({"raw": [0, 0, 0]})
+                    daily_feats.append({"mapper":[0,0,0,0]})#[num_nodes, num_edges,num_nodes, num_nodes]
 
             if daily_feats:
                 seq_tda.append(merge_dicts(daily_feats))
@@ -376,6 +381,7 @@ if not timings_exists:
 
 for dataset_name in args.datasets:
     dataset_prefix = f"{dataset_name}_TFR_a{ALPHA:.2f}_b{BETA:.2f}"
+
     test_datasets = {dataset_prefix: {"over_lap": OVER_LAP, "n_cube": N_CUBE, "cls": CLS}}
     for i in range(1, BINS + 1):
         test_datasets[f"{dataset_prefix}_bin{i}"] = {"over_lap": OVER_LAP, "n_cube": N_CUBE, "cls": CLS}
@@ -387,7 +393,7 @@ for dataset_name in args.datasets:
             print(f"[SKIP] No TDA cache computed for {variant_name}")
             continue
         print(variant_name)
-        create_time_series_rnn_sequence(f"{variant_name}.csv", dataset_name, ALPHA, BETA, variant_name,
+        create_time_series_rnn_sequence(f"{variant_name}.csv", dataset_name, f"{dataset_prefix}.csv", ALPHA, BETA, variant_name,
                                         daily_tda_cache, timings_writer)
 
 timings_f.close()
