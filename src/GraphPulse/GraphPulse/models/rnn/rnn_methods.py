@@ -1,4 +1,8 @@
+import json
+
 import os
+os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
+
 import pickle
 import time
 from typing import Dict, Tuple, List, Any, Optional
@@ -12,13 +16,17 @@ from keras.models import Sequential
 from sklearn.metrics import roc_auc_score
 
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+import argparse
+import os
 
-# ============================================================
-# CONFIG
-# ============================================================
+parser = argparse.ArgumentParser(description="Script that takes a base directory as argument.")
+parser.add_argument("--base_dir", type=str, required=True,
+                    help="Absolute path to the project base directory.")
+args = parser.parse_args()
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../analyzer"))
+BASE_DIR = os.path.abspath(args.base_dir)
+print("Using base directory:", BASE_DIR)
+
 RESULTS_DIR = os.path.join(BASE_DIR, "data/output")
 RESULTS_FILE = os.path.join(RESULTS_DIR, "RNN-Results_AllTasks.csv")
 
@@ -29,12 +37,12 @@ TASK_FOLDERS = {
 }
 
 NETWORKS = [
-    "BEPRO_TFR_a3.00_b1.00.csv",
-    "BEPRO_TFR_a3.00_b1.00_bin1.csv", "BEPRO_TFR_a3.00_b1.00_bin2.csv",
-    "BEPRO_TFR_a3.00_b1.00_bin3.csv", "BEPRO_TFR_a3.00_b1.00_bin4.csv",
-    "BEPRO_TFR_a3.00_b1.00_bin5.csv", "BEPRO_TFR_a3.00_b1.00_bin6.csv",
-    "BEPRO_TFR_a3.00_b1.00_bin7.csv", "BEPRO_TFR_a3.00_b1.00_bin8.csv",
-    "BEPRO_TFR_a3.00_b1.00_bin9.csv", "BEPRO_TFR_a3.00_b1.00_bin10.csv",
+    "BEPRO_TFR_a3.00_b1.00",
+    "BEPRO_TFR_a3.00_b1.00_bin1", "BEPRO_TFR_a3.00_b1.00_bin2",
+    "BEPRO_TFR_a3.00_b1.00_bin3", "BEPRO_TFR_a3.00_b1.00_bin4",
+    "BEPRO_TFR_a3.00_b1.00_bin5", "BEPRO_TFR_a3.00_b1.00_bin6",
+    "BEPRO_TFR_a3.00_b1.00_bin7", "BEPRO_TFR_a3.00_b1.00_bin8",
+    "BEPRO_TFR_a3.00_b1.00_bin9", "BEPRO_TFR_a3.00_b1.00_bin10",
 ]
 
 LEARNING_RATE_DEFAULT = 0.0001
@@ -144,25 +152,36 @@ def read_pickle(path):
 def assemble_data(task_key, network, normalizer="all"):
     tinfo = TASK_FOLDERS[task_key]
     base_dir = os.path.join(BASE_DIR, tinfo["folder"], network)
-    print(f"\n--- Assembling {tinfo['pretty']} | {network}")
+    print(f"\n--- Assembling {tinfo['pretty']} | {base_dir}")
 
-    seq_tda = read_pickle(os.path.join(base_dir, "seq_tda.txt"))
-    seq_raw = read_pickle(os.path.join(base_dir, "seq_raw.txt"))
+    with open(os.path.join(base_dir, "seq_tda.txt"), "r") as f:
+        seq_tda = json.load(f)
 
-    y = np.array(seq_tda["label"], dtype=np.float32)
-    tda_sequences = list(seq_tda["sequence"].values())[0]
-    raw_sequences = list(seq_raw["sequence"].values())[0]
+    with open(os.path.join(base_dir, "seq_raw.txt"), "r") as f:
+        seq_raw = json.load(f)
 
-    # Pad
-    max_feat_tda = max(max(len(row) for row in seq) for seq in tda_sequences)
-    max_feat_raw = max(max(len(row) for row in seq) for seq in raw_sequences)
-    tda_np = np.array([pad_sequence(seq, 7, max_feat_tda) for seq in tda_sequences])
-    raw_np = np.array([pad_sequence(seq, 7, max_feat_raw) for seq in raw_sequences])
+    # Directly access the lists
+    y = np.array(seq_tda["LABELS"], dtype=np.float32)
 
-    # Align
-    n = min(len(tda_np), len(raw_np), len(y))
-    tda_np, raw_np, y = tda_np[:n], raw_np[:n], y[:n]
+    tda_sequences = seq_tda["TDA_SEQUENCE"]["overlap0.2-cube2-cls5"]
+    raw_sequences = seq_raw["RAW_SEQUENCE"]["raw_sequence"]
+    # --- Sanity check: ensure TDA and RAW sequences have same length ---
+    if len(tda_sequences) != len(raw_sequences):
+        print(f"[FATAL ❌] Length mismatch: TDA has {len(tda_sequences)} sequences, RAW has {len(raw_sequences)}.")
+        print("These should be aligned per temporal window. Please verify preprocessing.")
+        exit(1)
 
+
+
+
+
+    assert all(len(seq) == 7 for seq in tda_sequences)
+    assert all(len(seq) == 7 for seq in raw_sequences)
+    tda_np = np.array(tda_sequences, dtype=np.float32)
+    raw_np = np.array(raw_sequences, dtype=np.float32)
+ 
+
+    n = len(tda_sequences)
     # Diagnostics
     all_zero_tda = int((np.abs(tda_np).sum(axis=(1, 2)) == 0).sum())
     all_zero_raw = int((np.abs(raw_np).sum(axis=(1, 2)) == 0).sum())
@@ -245,8 +264,8 @@ def train_and_log(task_key, network, X, y, diag):
 if __name__ == "__main__":
     for task_key in ["task1", "task2", "task3"]:
         for network in NETWORKS:
-            try:
+            # try:
                 X, y, diag = assemble_data(task_key, network, NORMALIZER_MODE)
                 train_and_log(task_key, network, X, y, diag)
-            except Exception as e:
-                print(f"[Error] {task_key} - {network}: {e}")
+            # except Exception as e:
+            #     print(f"[Error] {task_key} - {network}: {e}")
