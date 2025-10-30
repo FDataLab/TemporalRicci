@@ -14,6 +14,9 @@ from keras.callbacks import Callback
 from keras.layers import LSTM, Dense, GRU
 from keras.models import Sequential
 from sklearn.metrics import roc_auc_score
+import wandb
+import re
+from wandb.integration.keras import WandbMetricsLogger
 
 import sys
 import argparse
@@ -31,18 +34,19 @@ RESULTS_DIR = os.path.join(BASE_DIR, "data/output")
 RESULTS_FILE = os.path.join(RESULTS_DIR, "RNNResultsAllTasks.csv")
 
 TASK_FOLDERS = {
-    "task1": {"pretty": "Network Growth Prediction", "folder": "Sequence_task1"},
+
     "task2": {"pretty": "Influential Node Prediction", "folder": "Sequence_task2"},
+    "task1": {"pretty": "Network Growth Prediction", "folder": "Sequence_task1"},
     "task3": {"pretty": "Connected Component Prediction", "folder": "Sequence_task3"},
 }
 
 NETWORKS = [
-    "BEPRO_TFR_a3.00_b1.00",
-    "BEPRO_TFR_a3.00_b1.00_bin1", "BEPRO_TFR_a3.00_b1.00_bin2",
-    "BEPRO_TFR_a3.00_b1.00_bin3", "BEPRO_TFR_a3.00_b1.00_bin4",
-    "BEPRO_TFR_a3.00_b1.00_bin5", "BEPRO_TFR_a3.00_b1.00_bin6",
-    "BEPRO_TFR_a3.00_b1.00_bin7", "BEPRO_TFR_a3.00_b1.00_bin8",
-    "BEPRO_TFR_a3.00_b1.00_bin9", "BEPRO_TFR_a3.00_b1.00_bin10",
+    "DERC_TFR_a3.00_b1.00",
+    "DERC_TFR_a3.00_b1.00_bin1", "DERC_TFR_a3.00_b1.00_bin2",
+    "DERC_TFR_a3.00_b1.00_bin3", "DERC_TFR_a3.00_b1.00_bin4",
+    "DERC_TFR_a3.00_b1.00_bin5", "DERC_TFR_a3.00_b1.00_bin6",
+    "DERC_TFR_a3.00_b1.00_bin7", "DERC_TFR_a3.00_b1.00_bin8",
+    "DERC_TFR_a3.00_b1.00_bin9", "DERC_TFR_a3.00_b1.00_bin10",
 ]
 
 LEARNING_RATE_DEFAULT = 0.0001
@@ -66,7 +70,7 @@ class AUCCallback(Callback):
         except ValueError:
             auc_score = float("nan")
         self.auc_scores.append(auc_score)
-        print(f"{task_key}Epoch {epoch + 1} - Validation AUC: {auc_score:.4f}")
+        print(f"{task_key} Epoch {epoch + 1} - Validation AUC: {auc_score:.4f}")
 
     def get_auc_std(self) -> float:
         vals = [v for v in self.auc_scores if np.isfinite(v)]
@@ -88,9 +92,10 @@ def ensure_results_header():
     if not os.path.exists(RESULTS_FILE) or os.path.getsize(RESULTS_FILE) == 0:
         with open(RESULTS_FILE, "w") as fh:
             fh.write(
-                "Task,TaskPretty,Network,Spec,Loss,Accuracy,AUC,ROC_AUC,AUC_AVG,AUC_STD,"
+                "Task,Network,Loss,Accuracy,ROC_AUC,AUC_AVG,AUC_STD,"
                 "TrainTimeSec,NumSamples,LearningRate,Label0,Label1,Label0Rate,Label1Rate,"
-                "AllZeroTDA,AllZeroRAW,NonEmptyEither,NonEmptyBoth\n"
+                "AllZeroTDA,AllZeroRAW,NonEmptyEither,NonEmptyBoth,"
+                "StartDateTime,EndDateTime\n"
             )
 
 
@@ -105,7 +110,7 @@ def pad_sequence(seq, target_len=7, feature_dim=None):
     return padded
 
 
-def normalize_pair(np_data, np_data_raw, mode: str):
+def normalize_pair_old (np_data, np_data_raw, mode: str):
     if mode == "per_column":
         min_values = np.min(np_data, axis=(0, 1))
         max_values = np.max(np_data, axis=(0, 1))
@@ -128,6 +133,16 @@ def normalize_pair(np_data, np_data_raw, mode: str):
         normalized_raw_data_arr = np.nan_to_num(normalized_raw_data_arr)
 
     return normalized_data_arr, normalized_raw_data_arr
+
+def normalize_pair(np_data, np_data_raw, mode="per_column"):
+    # normalize per feature column across all samples and time steps
+    def norm(arr):
+        min_v = np.min(arr, axis=(0, 1), keepdims=True)
+        max_v = np.max(arr, axis=(0, 1), keepdims=True)
+        scaled = (arr - min_v) / (max_v - min_v + 1e-10)
+        return np.nan_to_num(scaled)
+
+    return norm(np_data), norm(np_data_raw)
 
 
 def build_lstm_model(input_shape):
@@ -205,16 +220,45 @@ def assemble_data(task_key, network, base_network, normalizer="all"):
     print(f"  X shape: {X.shape}, y shape: {y.shape}, labels: 0={lbl0}, 1={lbl1}")
     return X, y, diag
 
+def short_net_name(network: str) -> str:
+    # remove the numeric specifier part
+    cleaned = network.replace("TFR_a3.00_b1.00_", "")
+    return cleaned
+
 
 # ============================================================
 # TRAINING PIPELINE
 # ============================================================
 
 def train_and_log(task_key, network, X, y, diag):
+    epochs = 10
+
+    tags = [task_key, network.split("_")[-1], "RNN", "7day"]
+    short_net = network
+    run_name = f"{task_key}{short_net}"
+
+    wandb.init(
+        project="GraphPulse_RNN",
+        group=task_key,  # groups runs by task
+        name=run_name,
+        job_type="training",
+        tags=tags,
+        config={
+            "learning_rate": LEARNING_RATE_DEFAULT,
+            "epochs": epochs,
+            "sequence_length": 7,
+            "normalizer_mode": NORMALIZER_MODE,
+            "task": task_key,
+            "network": short_net
+        },
+        reinit=True
+    )
+
+    wandb_logger = WandbMetricsLogger()
     ensure_results_header()
     reset_random_seeds()
 
-    # Split
+    # Split dataset
     n = len(X)
     n_train = int(0.7 * n)
     n_val = int(0.85 * n)
@@ -222,41 +266,66 @@ def train_and_log(task_key, network, X, y, diag):
     X_val, y_val = X[n_train:n_val], y[n_train:n_val]
     X_te, y_te = X[n_val:], y[n_val:]
 
+    # Build and compile model
     model = build_lstm_model(input_shape=(7, X.shape[2]))
     opt = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE_DEFAULT)
     model.compile(loss="binary_crossentropy", optimizer=opt, metrics=["accuracy", "AUC"])
 
     auc_cb = AUCCallback(validation_data=(X_val, y_val))
 
+    # ---- Start timing ----
+    start_time = time.time()
+    start_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
+
     t0 = time.time()
-    model.fit(X_tr, y_tr, epochs=10, validation_data=(X_val, y_val),
-              callbacks=[auc_cb], verbose=0)
+    model.fit(X_tr, y_tr, epochs=epochs, validation_data=(X_val, y_val),
+              callbacks=[auc_cb, wandb_logger], verbose=0)
     elapsed = time.time() - t0
 
-    y_pred = model.predict(X_te, verbose=0)
-    try:
-        roc_auc = roc_auc_score(y_te, y_pred)
-    except ValueError:
-        roc_auc = float("nan")
-    loss, acc, auc = model.evaluate(X_te, y_te, verbose=0)
+    end_time = time.time()
+    end_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time))
 
-    # Save RicciResults
+    # ---- Evaluation ----
+    y_pred = model.predict(X_te, verbose=0)
+
+    loss_fn = tf.keras.losses.BinaryCrossentropy()
+    loss = float(loss_fn(y_te, y_pred).numpy())
+    acc = float(np.mean((y_pred >= 0.5) == y_te))
+    auc = float(tf.keras.metrics.AUC()(y_te, y_pred).numpy())
+    roc_auc = float(roc_auc_score(y_te, y_pred))
+
+    # ---- W&B logging ----
+    wandb.log({
+        "test/loss": loss,
+        "test/accuracy": acc,
+        "test/auc_keras": auc,
+        "test/roc_auc": roc_auc,
+        "validation/auc_mean": auc_cb.get_auc_avg(),
+        "validation/auc_std": auc_cb.get_auc_std(),
+        "runtime/train_time_sec": elapsed,
+        "dataset/num_samples": len(X),
+        "dataset/label0_rate": diag["Label0Rate"],
+        "dataset/label1_rate": diag["Label1Rate"],
+        "dataset/all_zero_tda": diag["AllZeroTDA"],
+        "dataset/all_zero_raw": diag["AllZeroRAW"]
+    })
+
+    # ---- Save to CSV ----
     with open(RESULTS_FILE, "a") as f:
-        f.write("{},{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{},{},"
-                "{},{:.4f},{:.4f},{},{},{},{}\n".format(
-            task_key,
-            TASK_FOLDERS[task_key]["pretty"],
-            network,
-            loss, acc, auc, roc_auc,
-            auc_cb.get_auc_avg(), auc_cb.get_auc_std(),
-            elapsed, len(X),
-            LEARNING_RATE_DEFAULT,
-            diag["Label0"], diag["Label1"],
-            diag["Label0Rate"], diag["Label1Rate"],
-            diag["AllZeroTDA"], diag["AllZeroRAW"],
-            diag["NonEmptyEither"], diag["NonEmptyBoth"]
-        ))
-    print(f"[{TASK_FOLDERS[task_key]['pretty']}] {network} | loss={loss:.4f} acc={acc:.4f} AUC={auc:.4f} ROC_AUC={roc_auc:.4f}")
+        f.write(
+            f"{task_key},{network},{loss:.4f},{acc:.4f},{roc_auc:.4f},"
+            f"{auc_cb.get_auc_avg():.4f},{auc_cb.get_auc_std():.4f},{elapsed:.2f},"
+            f"{len(X)},{LEARNING_RATE_DEFAULT},{diag['Label0']},{diag['Label1']},"
+            f"{diag['Label0Rate']:.4f},{diag['Label1Rate']:.4f},{diag['AllZeroTDA']},"
+            f"{diag['AllZeroRAW']},{diag['NonEmptyEither']},{diag['NonEmptyBoth']},"
+            f"{start_datetime},{end_datetime}\n"
+        )
+
+    wandb.finish()
+
+    print(f"[{TASK_FOLDERS[task_key]['pretty']}] {network} | "
+          f"loss={loss:.4f} acc={acc:.4f} AUC={auc:.4f} ROC_AUC={roc_auc:.4f} | "
+          f"Started: {start_datetime} Ended: {end_datetime}")
 
 
 # ============================================================
@@ -264,7 +333,7 @@ def train_and_log(task_key, network, X, y, diag):
 # ============================================================
 
 if __name__ == "__main__":
-    for task_key in ["task1", "task2", "task3"]:
+    for task_key in ["task2", "task3", "task1"]:
         base_network = NETWORKS[0]
         print("We are using labels of ", base_network)
         for network in NETWORKS:

@@ -398,3 +398,33 @@ for dataset_name in args.datasets:
 
 timings_f.close()
 print(f"\nAll datasets completed in {time.perf_counter() - overall_start:.2f} seconds.")
+
+# ============================================================
+# CREATE SUMMARY OUTPUT FILE (process_data_time.csv)
+# ============================================================
+
+process_time_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "process_data_time.csv")
+
+# Read all phase timings
+df = pd.read_csv(timings_path)
+
+# Convert unix timestamps to datetime
+df["start_time"] = pd.to_datetime(df["start_unix"], unit="s", errors="coerce")
+df["end_time"] = pd.to_datetime(df["end_unix"], unit="s", errors="coerce")
+df["duration_sec"] = df["end_time"] - df["start_time"]
+df["duration_sec"] = df["duration_sec"].dt.total_seconds().round(2)
+
+# For each dataset/variant, summarize total duration and min/max timestamps
+summary = (
+    df.groupby(["dataset", "variant"], as_index=False)
+      .agg(
+          start_datetime=("start_time", "min"),
+          end_datetime=("end_time", "max"),
+          total_duration_sec=("duration_sec", "sum")
+      )
+)
+
+# Save CSV
+process_time_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "process_data_time.csv")
+summary.to_csv(process_time_path, index=False)
+print(f"[SAVED] Process timing summary written to {process_time_path}")

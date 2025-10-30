@@ -1,0 +1,86 @@
+_wandb:
+    value:
+        cli_version: 0.22.2
+        e:
+            0v5jmbsa6wag16okxekneggbxnwps2og:
+                args:
+                    - --base_dir
+                    - /home/cakcora/PycharmProjects/TemporalRicci/GraphPulseResults
+                codePath: src/GraphPulse/GraphPulse/models/rnn/rnn_methods.py
+                codePathLocal: rnn_methods.py
+                cpu_count: 128
+                cpu_count_logical: 256
+                cudaVersion: "12.8"
+                disk:
+                    /:
+                        total: "1888558305280"
+                        used: "1326142992384"
+                email: cuneytgurcan@yahoo.com
+                executable: /home/cakcora/PycharmProjects/TemporalRicci/venv/bin/python
+                git:
+                    commit: 3bf4b9986e55127be04de72cec09416a367755d4
+                    remote: https://github.com/FDataLab/TemporalRicci.git
+                gpu: NVIDIA H200 NVL
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Hopper
+                      cudaCores: 16896
+                      memoryTotal: "150754820096"
+                      name: NVIDIA H200 NVL
+                      uuid: GPU-504cc4e9-fe64-54c3-1757-4a1e42752e06
+                host: lambda-scalar
+                memory:
+                    total: "1622841769984"
+                os: Linux-5.15.0-157-generic-x86_64-with-glibc2.35
+                program: /home/cakcora/PycharmProjects/TemporalRicci/src/GraphPulse/GraphPulse/models/rnn/rnn_methods.py
+                python: CPython 3.10.12
+                root: /home/cakcora/PycharmProjects/TemporalRicci/src/GraphPulse/GraphPulse/models/rnn
+                startedAt: "2025-10-20T16:52:44.180309Z"
+                writerId: 0v5jmbsa6wag16okxekneggbxnwps2og
+        m:
+            - "1": epoch/epoch
+              "6":
+                - 3
+              "7": []
+            - "2": epoch/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+        python_version: 3.10.12
+        t:
+            "1":
+                - 2
+                - 3
+                - 5
+                - 53
+            "2":
+                - 2
+                - 3
+                - 5
+                - 53
+            "3":
+                - 2
+                - 7
+                - 13
+                - 15
+                - 16
+                - 38
+            "4": 3.10.12
+            "5": 0.22.2
+            "10":
+                - 20
+            "12": 0.22.2
+            "13": linux-x86_64
+epochs:
+    value: 10
+learning_rate:
+    value: 0.0001
+network:
+    value: BEPRO_TFR_a3.00_b1.00_bin2
+normalizer_mode:
+    value: all
+sequence_length:
+    value: 7
+task:
+    value: task2

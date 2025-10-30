@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+*.pyd
+*.pdb
+*.db
+*.sqlite3
+*.log
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+*.env
+
+# ---- Jupyter Notebooks ----
+.ipynb_checkpoints/
+
+# ---- PyCharm / JetBrains ----
+.idea/
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
