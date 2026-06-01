@@ -1,58 +1,26 @@
-# Temporal Ricci Curvature
+# TRicci: Temporal Ricci-Based Edge Sparsification for Dynamic Graph Learning
 
-This repository includes tools to:
-- **Compute and bin temporal Forman–Ricci curvature** for blockchain transaction networks.  
-  The curvature values are calculated per edge over time and then partitioned into multiple bins to analyze how different curvature ranges contribute to network dynamics.
-- **Generate daily network snapshots** and extract topological features*. These snapshots capture evolving structural patterns that can be mapped into feature sequences for machine learning.
-- **Label and prepare datasets** for three predictive tasks that capture the structural evolution of dynamic graphs.
+This repository contains the implementation of **TRicci**, a Temporal Forman–Ricci curvature-based edge sparsification framework for dynamic graph learning.
 
+TRicci assigns an importance score to each directed, weighted, temporal edge by combining structural support, temporal proximity, and local interaction competition. The goal is to construct compact temporal graph representations that preserve downstream predictive performance while substantially reducing graph size and runtime.
 
-## Prediction Tasks
+## Overview
 
-Each dataset is converted into time-windowed graph sequences and labeled for one of the following tasks:
+The framework processes temporal graphs as sequences of snapshots, computes TRicci scores for edges within each snapshot, ranks edges based on their curvature values, and retains the most informative curvature-ranked edges for downstream prediction.
 
-### **Task 1 — Network Growth Prediction**
-Determines whether the number of edges in the network will increase in the following time window.  
-This task reflects the short-term expansion or contraction of the transaction network.
+The method is evaluated on graph-level temporal prediction tasks, including:
 
-### **Task 2 — Influential Node Count Prediction**
-Estimates whether the count of top-1% high-volume (most active) nodes will increase in the next time window.  
-It focuses on identifying shifts in activity concentration and the emergence of influential participants.
+* Network activity growth prediction
+* Network participation expansion prediction
+* Influential node turnover prediction
 
-### **Task 3 — Connected Components Prediction**
-Predicts whether the number of connected components in the graph will increase, indicating network fragmentation or reduced connectivity.
+Experiments are conducted on blockchain transaction networks and TGBL benchmark datasets.
 
+## Key Features
 
-## Pipeline Summary
-
-1. **Input**  
-   Precomputed curvature-based CSV files are stored under:
-   RicciResults/ricci_values/<DATASET>/
-   
-   The dataset name should follow the pattern for example:  
-    `BEPRO_TFR_a3.00_b1.00.csv`, `BEPRO_TFR_a3.00_b1.00_bin1.csv`, etc.  
-   
-3. **Sequence Generation**  
-The script [`network_parser.py`](src/GraphPulse/GraphPulse/analyzer/network_parser.py) processes each dataset and creates **time-windowed network sequences** in two formats:  
-- **TDA-based sequences** — topological descriptors extracted using *KeplerMapper*.
-- **Raw sequences** — basic structural statistics such as node count, edge count, and average degree per window.  
-
-3. **Labeling**  
-Each generated sequence is labeled automatically according to the three predictive task definitions:  
-- **Task 1:** Network Growth  
-- **Task 2:** Influential Node Count  
-- **Task 3:** Connected Components  
-
-4. **Output**  
-- **Feature sequences** (`seq_tda.txt` and `seq_raw.txt`) are saved under:  
-  ```
-  GraphPulseResults/
-    ├── Sequence_task1/
-    ├── Sequence_task2/
-    └── Sequence_task3/
-  ```  
-  Each task folder contains subdirectories for all processed datasets.  
-- **Runtime and status logs** are saved to:  
-  ```
-  GraphPulseResults/<DATASET>_run_times.csv
-  ```      
+* Temporal Forman–Ricci curvature computation for directed weighted temporal graphs
+* Snapshot-level edge scoring and ranking
+* Curvature-based edge sparsification
+* Tau sensitivity analysis
+* RNN-based temporal prediction using LSTM/GRU models
+* ROC-AUC and runtime evaluation against baseline sparsification methods
