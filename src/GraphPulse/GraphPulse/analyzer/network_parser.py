@@ -27,7 +27,7 @@ from util.graph_util import from_networkx
 
 
 # ============================================================
-# CONFIGURATION (edit these only)
+# CONFIGURATION
 # ============================================================
 DATASET_NAME = "BEPRO"
 ALPHA = 3.00

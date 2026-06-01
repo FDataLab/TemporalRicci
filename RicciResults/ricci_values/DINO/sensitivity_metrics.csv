@@ -1,2 +1,0 @@
-alpha,beta,coverage_rate,mean_nodes_per_bin,effective_bins,separation_score,median_nodes_per_bin,trimmed_mean_nodes_per_bin,node_evenness,node_gini,edge_coverage_rate,mean_edges_per_bin,median_edges_per_bin
-3.0,1.0,0.1623287238744712,2570.8,4.247616390991903,1.4641577934682417,1348.5,1465.6666666666667,0.6137933871529897,0.68728294500221,0.1,9414.0,3294.5

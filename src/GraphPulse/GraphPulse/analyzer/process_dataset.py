@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """
-GraphPulse multi-dataset driver.
+GraphPulse multi-dataset driver with enhanced features for Tasks 2 & 3.
 
 This script orchestrates:
   1. Loading Ricci curvature CSV datasets.
   2. Running daily Topological Data Analysis (TDA) via KeplerMapper.
-  3. Generating temporal RNN training sequences and labels.
+  3. Generating temporal RNN training sequences and labels with enhanced features.
   4. Logging runtimes for each phase in Unix seconds.
+
+Expected input file format inside each dataset folder:
+  <DATASET>_full.csv
+  <DATASET>_bin1.csv
+  <DATASET>_bin2.csv
+  ...
+  <DATASET>_binK.csv
 """
 
 import argparse
@@ -26,31 +33,33 @@ from sklearn.preprocessing import MinMaxScaler
 # ============================================================
 # ARGUMENT PARSING
 # ============================================================
-parser_args = argparse.ArgumentParser(description="GraphPulse multi-dataset driver with Unix time logging.")
-parser_args.add_argument("--datasets", nargs="+", required=True,
-                         help="List of dataset names under RicciResults/ricci_values/ (e.g. BEPRO LCC ETH)")
-parser_args.add_argument("--alpha", type=float, default=3.0)
-parser_args.add_argument("--beta", type=float, default=1.0)
+parser_args = argparse.ArgumentParser(
+    description="GraphPulse multi-dataset driver with Unix time logging."
+)
+parser_args.add_argument(
+    "--datasets",
+    nargs="+",
+    required=True,
+    help="List of dataset names under RicciResults/ricci_values_windowed/ (e.g. tgbl-wiki LCC ETH)"
+)
 parser_args.add_argument("--overlap", type=float, default=0.2, help="Mapper overlap fraction.")
 parser_args.add_argument("--ncube", type=int, default=2, help="Number of cubes for Mapper cover.")
 parser_args.add_argument("--cls", type=int, default=5, help="Cluster count (k-means).")
-parser_args.add_argument("--bins", type=int, default=10, help="Number of bin variants per dataset.")
+parser_args.add_argument("--bins", type=int, default=5, help="Number of bin variants per dataset.")
 args = parser_args.parse_args()
 
-ALPHA = args.alpha
-BETA = args.beta
 OVER_LAP = args.overlap
 N_CUBE = args.ncube
 CLS = args.cls
 BINS = args.bins
 
-# fixed temporal parameters from GraphPulse
+# temporal parameters from GraphPulse
 windowSize, gap, labelWindowSize = 7, 3, 7
 
 # directories
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
-GRAPHPULSE_RESULTS_DIR = os.path.join(base_dir, "GraphPulseResults")
-RICCI_ROOT = os.path.join(base_dir, "RicciResults/ricci_values")
+GRAPHPULSE_RESULTS_DIR = os.path.join(base_dir, "GraphPulseResultsWindowed")
+RICCI_ROOT = os.path.join(base_dir, "RicciResults/ricci_values_windowed")
 os.makedirs(GRAPHPULSE_RESULTS_DIR, exist_ok=True)
 
 # ============================================================
@@ -58,51 +67,68 @@ os.makedirs(GRAPHPULSE_RESULTS_DIR, exist_ok=True)
 # ============================================================
 if not os.path.exists(RICCI_ROOT) or not os.listdir(RICCI_ROOT):
     print(
-        f"[FATAL ❌] Ricci curvature values are missing.\nExpected: {RICCI_ROOT}\nEnsure RicciResults/ricci_values/ contains dataset subfolders like 'BEPRO/'.")
-    exit(1)
+        f"[FATAL] Ricci curvature values are missing.\n"
+        f"Expected: {RICCI_ROOT}\n"
+        f"Ensure RicciResults/ricci_values_windowed/ contains dataset subfolders like 'tgbl-wiki/'."
+    )
+    raise SystemExit(1)
 
 
 # ============================================================
 # LABELING HELPERS
 # ============================================================
-def label_task1(selectedNetworkInGraphDataWindow: pd.DataFrame,
-                selectedNetworkInLabelingWindow: pd.DataFrame) -> int:
+def label_task1(
+    selectedNetworkInGraphDataWindow: pd.DataFrame,
+    selectedNetworkInLabelingWindow: pd.DataFrame
+) -> int:
     """Return 1 if the labeling window has more edges than the data window."""
     return int(len(selectedNetworkInLabelingWindow) > len(selectedNetworkInGraphDataWindow))
 
 
-def label_task2(G: nx.MultiDiGraph, prevNetwork: pd.DataFrame | None = None) -> int:
-    """
-    Label based on change in the number of high-degree nodes (degree >= 5).
-    Returns 1 if the count of such nodes decreases compared to the previous window.
-    """
-    current_deg = dict(G.degree())
-    min_degree_for_influential = 5
-    current_high = sum(1 for d in current_deg.values() if d >= min_degree_for_influential)
-
-    if prevNetwork is None:
+def label_task2(G_current, G_next, k_ratio=0.10, threshold=0.30):
+    """Predict whether the top-k degree set changes sufficiently in the next window."""
+    if G_next is None or G_next.number_of_nodes() == 0:
         return 0
 
-    G_prev = nx.from_pandas_edgelist(prevNetwork, 'from', 'to', ['value'], create_using=nx.MultiDiGraph())
-    prev_deg = dict(G_prev.degree())
-    prev_high = sum(1 for d in prev_deg.values() if d >= min_degree_for_influential)
-    return int(current_high < prev_high)
+    deg_curr = dict(G_current.degree())
+    deg_next = dict(G_next.degree())
 
-
-def label_task3(G: nx.MultiDiGraph, prevG: nx.MultiDiGraph | None = None) -> int:
-    """
-    Label based on change in connected component count.
-    Returns 1 if components increased since previous day.
-    """
-    H = G.to_undirected()
-    current_count = nx.number_connected_components(H) if len(H.nodes) > 0 else 0
-
-    if prevG is None:
+    if len(deg_curr) == 0 or len(deg_next) == 0:
         return 0
 
-    prevH = prevG.to_undirected()
-    prev_count = nx.number_connected_components(prevH) if len(prevH.nodes) > 0 else 0
-    return int(current_count > prev_count)
+    k = max(1, int(len(deg_curr) * k_ratio))
+
+    top_k_curr = set(
+        n for n, _ in sorted(deg_curr.items(), key=lambda x: x[1], reverse=True)[:k]
+    )
+    top_k_next = set(
+        n for n, _ in sorted(deg_next.items(), key=lambda x: x[1], reverse=True)[:k]
+    )
+
+    new_nodes = top_k_next - top_k_curr
+    ratio_new = len(new_nodes) / k
+
+    return int(ratio_new > threshold)
+
+
+def label_task3(
+    df_data_window: pd.DataFrame,
+    df_label_window: pd.DataFrame
+) -> int:
+    """
+    Task 3: Network Participation Increase Prediction
+
+    Returns:
+        1 if label_window has more unique nodes than data_window
+        0 otherwise
+    """
+    if len(df_data_window) < 1 or len(df_label_window) < 1:
+        return 0
+
+    data_nodes = set(df_data_window["from"]).union(set(df_data_window["to"]))
+    label_nodes = set(df_label_window["from"]).union(set(df_label_window["to"]))
+
+    return int(len(label_nodes) > len(data_nodes))
 
 
 def merge_dicts(list_of_dicts: list[dict]) -> dict:
@@ -117,16 +143,26 @@ def merge_dicts(list_of_dicts: list[dict]) -> dict:
 # ============================================================
 # DAILY MAPPER / TDA COMPUTATION
 # ============================================================
-def precompute_all_daily_tda(dataset_name: str, variant_name: str,
-                             alpha: float, beta: float,
-                             timings_writer: csv.DictWriter, **kwargs) -> dict | None:
+def precompute_all_daily_tda(
+    dataset_name: str,
+    variant_name: str,
+    timings_writer: csv.DictWriter,
+    **kwargs
+) -> dict | None:
+    """
+    Compute daily Mapper-TDA features for a given dataset variant.
+
+    variant_name examples:
+      tgbl-wiki_full
+      tgbl-wiki_bin3
+    """
     csv_path = os.path.join(RICCI_ROOT, dataset_name, f"{variant_name}.csv")
     if not os.path.exists(csv_path):
-        print(f"[SKIP] {variant_name}: file not found.")
+        print(f"[SKIP] {dataset_name}/{variant_name}.csv: file not found.")
         return None
+
     blank_day_counter = 0
     print(f"[LOAD] Reading {csv_path}")
-    # df = pd.read_csv(csv_path)
     df = pd.read_csv(csv_path)
 
     if df.shape[0] < 100:
@@ -145,13 +181,14 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
     for current_date in tqdm(all_dates, desc=f"{variant_name} - TDA"):
         next_day = current_date + pd.Timedelta(days=1)
         sub_df = df[(df["timestamp"] >= current_date) & (df["timestamp"] < next_day)]
-        num_edges, num_nodes = len(sub_df), len(set(sub_df["from"]).union(sub_df["to"]))
+        num_edges = len(sub_df)
+        num_nodes = len(set(sub_df["from"]).union(sub_df["to"]))
 
         if num_edges < 3 or num_nodes < 2:
             daily_tda_cache[pd.Timestamp(current_date)] = {
-                "mapper": [num_nodes, num_edges,num_nodes, num_nodes]
+                "mapper": [num_nodes, num_edges, num_nodes, num_nodes]
             }
-            blank_day_counter = blank_day_counter + 1
+            blank_day_counter += 1
             continue
 
         outgoing_wsum = sub_df.groupby("from")["value"].sum()
@@ -170,25 +207,31 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
         X = pd.DataFrame(records).drop(columns=["nodeID"], errors="ignore")
         if X.shape[0] < 3:
             daily_tda_cache[pd.Timestamp(current_date)] = {
-                "mapper": [num_nodes, num_edges,
-                                                                                           num_nodes, num_nodes]
+                "mapper": [num_nodes, num_edges, num_nodes, num_nodes]
             }
-
-            blank_day_counter = blank_day_counter + 1
+            blank_day_counter += 1
             continue
 
         mapper = km.KeplerMapper()
         X_scaled = MinMaxScaler((0, 1)).fit_transform(X)
         perplexity = max(2, min(30, X_scaled.shape[0] // 3))
         try:
-            lens = sklearn.manifold.TSNE(perplexity=perplexity, init="random", max_iter=500).fit_transform(X_scaled)
+            lens = sklearn.manifold.TSNE(
+                perplexity=perplexity,
+                init="random",
+                random_state=42,
+                max_iter=500
+            ).fit_transform(X_scaled)
         except Exception:
             lens = X_scaled
 
         mapper_graph = mapper.map(
-            lens, X_scaled,
+            lens,
+            X_scaled,
             clusterer=sklearn.cluster.KMeans(
-                n_clusters=min(kwargs["cls"], max(1, X_scaled.shape[0] // 2)), random_state=42),
+                n_clusters=min(kwargs["cls"], max(1, X_scaled.shape[0] // 2)),
+                random_state=42
+            ),
             cover=km.Cover(n_cubes=kwargs["n_cube"], perc_overlap=kwargs["over_lap"])
         )
 
@@ -199,7 +242,7 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
         max_size = max(cluster_sizes) if cluster_sizes else 0
 
         daily_tda_cache[pd.Timestamp(current_date)] = {
-            "mapper": [nodes_in_map_graph,edges_in_map_graph, max_size,avg_size]
+            "mapper": [nodes_in_map_graph, edges_in_map_graph, max_size, avg_size]
         }
 
     duration = time.perf_counter() - t0
@@ -208,14 +251,17 @@ def precompute_all_daily_tda(dataset_name: str, variant_name: str,
         "dataset": dataset_name,
         "variant": variant_name,
         "phase": "tda",
-        "alpha": alpha,
-        "beta": beta,
+        "alpha": "",
+        "beta": "",
         "start_unix": f"{start_unix:.6f}",
         "end_unix": f"{time.time():.6f}",
         "seconds": f"{duration:.6f}",
     })
-    length = len(all_dates)
-    print(f"[DONE] TDA {variant_name} with {blank_day_counter} empty days  in {length} days: {duration:.2f}s\n")
+
+    print(
+        f"[DONE] TDA {variant_name} with {blank_day_counter} empty days in "
+        f"{len(all_dates)} days: {duration:.2f}s\n"
+    )
     return daily_tda_cache
 
 
@@ -231,17 +277,23 @@ def to_builtin(obj):
 
 
 # ============================================================
-# SEQUENCE GENERATION AND LABELING
+# SEQUENCE GENERATION AND LABELING WITH ENHANCED FEATURES
 # ============================================================
-def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_file: str, alpha: float, beta: float,
-                                    variant_name: str, daily_tda_cache: dict, timings_writer: csv.DictWriter) -> None:
-    print(f"Processing {file}")
+def create_time_series_rnn_sequence(
+    file: str,
+    dataset_name: str,
+    basis_dataset_file: str,
+    variant_name: str,
+    daily_tda_cache: dict,
+    timings_writer: csv.DictWriter
+) -> None:
+    print(f"Processing {dataset_name}/{file}")
     start_unix = time.time()
     t0 = time.perf_counter()
 
     csv_path = os.path.join(RICCI_ROOT, dataset_name, file)
     csv_path_basis = os.path.join(RICCI_ROOT, dataset_name, basis_dataset_file)
-    # df = pd.read_csv(csv_path)
+
     df = pd.read_csv(csv_path)
     df_basis = pd.read_csv(csv_path_basis)
 
@@ -252,9 +304,10 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_
     df_basis = df_basis.sort_values("timestamp")
     df["value"] = df["value"].astype(float)
 
-    last_date, start_date = df_basis["timestamp"].max(), df_basis["timestamp"].min()
+    start_date = df_basis["timestamp"].min()
+    last_date = df_basis["timestamp"].max()
     num_windows = max(0, int((last_date - start_date).days - (windowSize + gap + labelWindowSize)))
-    prevG, prev_window_df = None, None
+
     for task_id, name, task_folder in [
         (1, "task1", "Sequence_task1"),
         (2, "task2", "Sequence_task2"),
@@ -262,7 +315,6 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_
     ]:
         print(f"\n=== Running {name} labeling for {file} ===")
         seq_tda, seq_raw, seq_labels = [], [], []
-
         ws_date = start_date
 
         for _ in tqdm(range(num_windows), desc=f"{file} - {name}", leave=False):
@@ -272,81 +324,117 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_
 
             df_win = df[(df["timestamp"] >= ws_date) & (df["timestamp"] < w_end)]
             df_label = df[(df["timestamp"] >= l_start) & (df["timestamp"] < l_end)]
-            # num_days = df_win["timestamp"].dt.floor("D").nunique()
-            # print("Number of days in window:", num_days)
-            # num_days = df_label["timestamp"].dt.floor("D").nunique()
-            # print("Number of days in labeling window:", num_days)
-            G = nx.from_pandas_edgelist(df_win, "from", "to", ["value"], create_using=nx.MultiDiGraph())
 
+            G = nx.from_pandas_edgelist(
+                df_win, "from", "to", ["value"], create_using=nx.MultiDiGraph()
+            )
+
+            # ----- LABELS -----
             if task_id == 1:
                 label = label_task1(df_win, df_label)
             elif task_id == 2:
-                label = label_task2(G, prev_window_df)
+                if df_label is not None and len(df_label) > 0:
+                    G_next = nx.from_pandas_edgelist(
+                        df_label, "from", "to", ["value"], create_using=nx.MultiDiGraph()
+                    )
+                else:
+                    G_next = None
+                label = label_task2(G, G_next)
             else:
-                label = label_task3(G, prevG)
+                label = label_task3(df_win, df_label)
+
             seq_labels.append(label)
 
-
-
-
-
-
-
+            # ----- FEATURES -----
             daily_feats = []
-            daily_raws =[]
+            daily_raws = []
+
             for i in range(windowSize):
                 key_date = pd.Timestamp(ws_date + pd.Timedelta(days=i)).floor("D")
+
                 if key_date in daily_tda_cache:
-
                     daily_feats.append(daily_tda_cache[key_date])
-                    df_win = df[(df["timestamp"] >= ws_date) & (df["timestamp"]< (ws_date + pd.Timedelta(days=i)))]
-                    G_day = nx.from_pandas_edgelist(df_win, "from", "to", ["value"], create_using=nx.MultiDiGraph())
+
+                    df_win_day = df[
+                        (df["timestamp"] >= ws_date) &
+                        (df["timestamp"] < ws_date + pd.Timedelta(days=i + 1))
+                    ]
+
+                    G_day = nx.from_pandas_edgelist(
+                        df_win_day, "from", "to", ["value"], create_using=nx.MultiDiGraph()
+                    )
+
                     n = G_day.number_of_nodes()
-                    avg_degree_day = 0.0 if n == 0 else sum(dict(G_day.to_undirected().degree()).values()) / n
-                    daily_raws.append(
-                        {"raw": [G_day.number_of_nodes(), G_day.number_of_edges(), avg_degree_day]})
+                    e = G_day.number_of_edges()
 
+                    avg_deg = 0 if n == 0 else (
+                        sum(dict(G_day.to_undirected().degree()).values()) / n
+                    )
+
+                    # Weighted degree distribution
+                    wdeg = {
+                        node: sum(data.get("value", 0) for _, _, data in G_day.edges(node, data=True))
+                        for node in G_day.nodes()
+                    }
+                    total_wdeg = sum(wdeg.values())
+
+                    if total_wdeg > 0 and len(wdeg) > 0:
+                        k = max(1, int(len(wdeg) * 0.10))
+                        top_k_wdeg = sum(sorted(wdeg.values(), reverse=True)[:k])
+                        whale_dominance = top_k_wdeg / total_wdeg
+                    else:
+                        whale_dominance = 0
+
+                    # Connectivity
+                    H = G_day.to_undirected()
+                    if H.number_of_nodes() > 0:
+                        gcc_size = len(max(nx.connected_components(H), key=len))
+                        num_components = nx.number_connected_components(H)
+                    else:
+                        gcc_size = 0
+                        num_components = 0
+
+                    # Volume
+                    total_volume = sum(data.get("value", 0) for _, _, data in G_day.edges(data=True))
+                    avg_transaction = total_volume / e if e > 0 else 0
+
+                    daily_raws.append({
+                        "raw": [
+                            n,                 # num_nodes
+                            e,                 # num_edges
+                            avg_deg,           # average_degree
+                            whale_dominance,   # weighted degree concentration
+                            gcc_size,          # giant connected component size
+                            num_components,    # number of connected components
+                            total_volume,      # total transaction volume
+                            avg_transaction    # average transaction size
+                        ]
+                    })
                 else:
-                    #today does not exist (for the binned data)
-                    daily_raws.append({"raw": [0, 0, 0]})
-                    daily_feats.append({"mapper":[0,0,0,0]})#[num_nodes, num_edges,num_nodes, num_nodes]
+                    daily_feats.append({"mapper": [0, 0, 0, 0]})
+                    daily_raws.append({"raw": [0, 0, 0, 0, 0, 0, 0, 0]})
 
-            if daily_feats:
-                seq_tda.append(merge_dicts(daily_feats))
-            if(daily_raws):
-                seq_raw.append(merge_dicts(daily_raws))
-
-            prevG, prev_window_df = G, df_win
+            seq_tda.append(merge_dicts(daily_feats))
+            seq_raw.append(merge_dicts(daily_raws))
             ws_date += pd.Timedelta(days=1)
 
         dataset_name_noext = os.path.splitext(file)[0]
-        directory = os.path.join(GRAPHPULSE_RESULTS_DIR, task_folder, dataset_name_noext)
-        print(dataset_name_noext, directory)
-        os.makedirs(directory, exist_ok=True)
+        output_dir = os.path.join(GRAPHPULSE_RESULTS_DIR, task_folder, dataset_name_noext)
+        os.makedirs(output_dir, exist_ok=True)
 
-        tda_path = os.path.join(directory, "seq_tda.txt")
-        raw_path = os.path.join(directory, "seq_raw.txt")
-
-        tda_clean = to_builtin(merge_dicts(seq_tda))
-        raw_clean = to_builtin(merge_dicts(seq_raw))
-
-        # Write TDA results
-        with open(tda_path, "w", encoding="utf-8") as f_tda:
+        with open(os.path.join(output_dir, "seq_tda.txt"), "w", encoding="utf-8") as f_tda:
             json.dump(
-                {"TDA_SEQUENCE": tda_clean, "LABELS": seq_labels},
+                {"TDA_SEQUENCE": to_builtin(merge_dicts(seq_tda)), "LABELS": seq_labels},
                 f_tda,
-                indent=2,
+                indent=2
             )
 
-        # Write raw graph stats
-        with open(raw_path, "w", encoding="utf-8") as f_raw:
+        with open(os.path.join(output_dir, "seq_raw.txt"), "w", encoding="utf-8") as f_raw:
             json.dump(
-                {"RAW_SEQUENCE": raw_clean, "LABELS": seq_labels},
+                {"RAW_SEQUENCE": to_builtin(merge_dicts(seq_raw)), "LABELS": seq_labels},
                 f_raw,
-                indent=2,
+                indent=2
             )
-
-        # print(f"[SAVE] {tda_path} and {raw_path}")
 
         gc.collect()
 
@@ -356,8 +444,8 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_
         "dataset": dataset_name,
         "variant": variant_name,
         "phase": "rnn_labeling",
-        "alpha": alpha,
-        "beta": beta,
+        "alpha": "",
+        "beta": "",
         "start_unix": f"{start_unix:.6f}",
         "end_unix": f"{time.time():.6f}",
         "seconds": f"{duration:.6f}",
@@ -369,32 +457,74 @@ def create_time_series_rnn_sequence(file: str, dataset_name: str, basis_dataset_
 # DRIVER ENTRY POINT
 # ============================================================
 overall_start = time.perf_counter()
-timings_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "run_times.csv")
+timings_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "run_times_sensitivity.csv")
 timings_exists = os.path.exists(timings_path)
+
 timings_f = open(timings_path, "a", newline="", encoding="utf-8")
 timings_writer = csv.DictWriter(
     timings_f,
-    fieldnames=["current_time", "dataset", "variant", "phase", "alpha", "beta", "start_unix", "end_unix", "seconds"],
+    fieldnames=[
+        "current_time", "dataset", "variant", "phase",
+        "alpha", "beta", "start_unix", "end_unix", "seconds"
+    ],
 )
 if not timings_exists:
     timings_writer.writeheader()
 
 for dataset_name in args.datasets:
-    dataset_prefix = f"{dataset_name}_TFR_a{ALPHA:.2f}_b{BETA:.2f}"
+    dataset_dir = os.path.join(RICCI_ROOT, dataset_name)
+    if not os.path.isdir(dataset_dir):
+        print(f"[WARN] Dataset folder not found: {dataset_dir}")
+        continue
 
-    test_datasets = {dataset_prefix: {"over_lap": OVER_LAP, "n_cube": N_CUBE, "cls": CLS}}
+    dataset_prefix = dataset_name
+    full_variant = f"{dataset_prefix}_full"
+
+    full_csv_path = os.path.join(dataset_dir, f"{full_variant}.csv")
+    if not os.path.exists(full_csv_path):
+        print(f"[WARN] Missing base file: {full_csv_path}. Skipping dataset {dataset_name}.")
+        continue
+
+    print(f"\n[DATASET] {dataset_name} - base variant {full_variant}")
+
+    test_datasets = {
+        full_variant: {"over_lap": OVER_LAP, "n_cube": N_CUBE, "cls": CLS}
+    }
+
     for i in range(1, BINS + 1):
-        test_datasets[f"{dataset_prefix}_bin{i}"] = {"over_lap": OVER_LAP, "n_cube": N_CUBE, "cls": CLS}
+        variant_name = f"{dataset_prefix}_bin{i}"
+        variant_path = os.path.join(dataset_dir, f"{variant_name}.csv")
+        if os.path.exists(variant_path):
+            test_datasets[variant_name] = {
+                "over_lap": OVER_LAP,
+                "n_cube": N_CUBE,
+                "cls": CLS,
+            }
+        else:
+            print(f"[INFO] Missing optional bin file: {variant_path}")
 
     for variant_name, cfg in test_datasets.items():
-        daily_tda_cache = precompute_all_daily_tda(dataset_name, variant_name, ALPHA, BETA, timings_writer,
-                                                   over_lap=cfg["over_lap"], n_cube=cfg["n_cube"], cls=cfg["cls"])
+        daily_tda_cache = precompute_all_daily_tda(
+            dataset_name,
+            variant_name,
+            timings_writer,
+            over_lap=cfg["over_lap"],
+            n_cube=cfg["n_cube"],
+            cls=cfg["cls"],
+        )
         if daily_tda_cache is None:
             print(f"[SKIP] No TDA cache computed for {variant_name}")
             continue
-        print(variant_name)
-        create_time_series_rnn_sequence(f"{variant_name}.csv", dataset_name, f"{dataset_prefix}.csv", ALPHA, BETA, variant_name,
-                                        daily_tda_cache, timings_writer)
+
+        print(f"[RNN] {dataset_name}/{variant_name}.csv (basis: {full_variant}.csv)")
+        create_time_series_rnn_sequence(
+            f"{variant_name}.csv",
+            dataset_name,
+            f"{full_variant}.csv",
+            variant_name,
+            daily_tda_cache,
+            timings_writer,
+        )
 
 timings_f.close()
 print(f"\nAll datasets completed in {time.perf_counter() - overall_start:.2f} seconds.")
@@ -402,29 +532,34 @@ print(f"\nAll datasets completed in {time.perf_counter() - overall_start:.2f} se
 # ============================================================
 # CREATE SUMMARY OUTPUT FILE (process_data_time.csv)
 # ============================================================
-
 process_time_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "process_data_time.csv")
 
-# Read all phase timings
 df = pd.read_csv(timings_path)
-
-# Convert unix timestamps to datetime
 df["start_time"] = pd.to_datetime(df["start_unix"], unit="s", errors="coerce")
 df["end_time"] = pd.to_datetime(df["end_unix"], unit="s", errors="coerce")
 df["duration_sec"] = df["end_time"] - df["start_time"]
 df["duration_sec"] = df["duration_sec"].dt.total_seconds().round(2)
 
-# For each dataset/variant, summarize total duration and min/max timestamps
 summary = (
     df.groupby(["dataset", "variant"], as_index=False)
-      .agg(
-          start_datetime=("start_time", "min"),
-          end_datetime=("end_time", "max"),
-          total_duration_sec=("duration_sec", "sum")
-      )
+    .agg(
+        start_datetime=("start_time", "min"),
+        end_datetime=("end_time", "max"),
+        total_duration_sec=("duration_sec", "sum")
+    )
 )
 
-# Save CSV
-process_time_path = os.path.join(GRAPHPULSE_RESULTS_DIR, "process_data_time.csv")
 summary.to_csv(process_time_path, index=False)
 print(f"[SAVED] Process timing summary written to {process_time_path}")
+
+# ============================================================
+# PRINT TOTAL RUNTIME
+# ============================================================
+total_runtime = time.perf_counter() - overall_start
+hours = int(total_runtime // 3600)
+minutes = int((total_runtime % 3600) // 60)
+seconds = total_runtime % 60
+
+print("\n============================================================")
+print(f"TOTAL PIPELINE RUNTIME: {hours}h {minutes}m {seconds:.2f}s")
+print("============================================================\n")

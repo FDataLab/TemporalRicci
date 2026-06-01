@@ -22,6 +22,7 @@ import sys
 import argparse
 import os
 
+
 parser = argparse.ArgumentParser(description="Script that takes a base directory as argument.")
 parser.add_argument("--base_dir", type=str, required=True,
                     help="Absolute path to the project base directory.")
@@ -31,23 +32,32 @@ BASE_DIR = os.path.abspath(args.base_dir)
 print("Using base directory:", BASE_DIR)
 
 RESULTS_DIR = os.path.join(BASE_DIR, "data/output")
-RESULTS_FILE = os.path.join(RESULTS_DIR, "RNNResultsAllTasks.csv")
+RESULTS_FILE = os.path.join(RESULTS_DIR, "RNNResultsAllTasks_tgbl-comment_Sensitivity.csv")
+
+RUNTIME_FILE = os.path.join(RESULTS_DIR, "RNN_PredictionRuntime_tgbl-comment.csv")
 
 TASK_FOLDERS = {
 
-    "task2": {"pretty": "Influential Node Prediction", "folder": "Sequence_task2"},
     "task1": {"pretty": "Network Growth Prediction", "folder": "Sequence_task1"},
+    "task2": {"pretty": "Influential Node Prediction", "folder": "Sequence_task2"},
     "task3": {"pretty": "Connected Component Prediction", "folder": "Sequence_task3"},
 }
 
 NETWORKS = [
-    "DERC_TFR_a3.00_b1.00",
-    "DERC_TFR_a3.00_b1.00_bin1", "DERC_TFR_a3.00_b1.00_bin2",
-    "DERC_TFR_a3.00_b1.00_bin3", "DERC_TFR_a3.00_b1.00_bin4",
-    "DERC_TFR_a3.00_b1.00_bin5", "DERC_TFR_a3.00_b1.00_bin6",
-    "DERC_TFR_a3.00_b1.00_bin7", "DERC_TFR_a3.00_b1.00_bin8",
-    "DERC_TFR_a3.00_b1.00_bin9", "DERC_TFR_a3.00_b1.00_bin10",
+"tgbl-comment_full",
+"tgbl-comment_bin1",
+"tgbl-comment_bin2",
+"tgbl-comment_bin3",
+"tgbl-comment_bin4",
+"tgbl-comment_bin5",
 ]
+
+def ensure_runtime_header():
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    if (not os.path.exists(RUNTIME_FILE)) or os.path.getsize(RUNTIME_FILE) == 0:
+        with open(RUNTIME_FILE, "w") as f:
+            f.write("Task,Network,StartDateTime,EndDateTime,TotalSeconds\n")
+
 
 LEARNING_RATE_DEFAULT = 0.0001
 NORMALIZER_MODE = "all"   # or "per_column"
@@ -184,12 +194,9 @@ def assemble_data(task_key, network, base_network, normalizer="all"):
     raw_sequences = seq_raw["RAW_SEQUENCE"]["raw"]
     # --- Sanity check: ensure TDA and RAW sequences have same length ---
     if len(tda_sequences) != len(raw_sequences):
-        print(f"[FATAL ❌] Length mismatch: TDA has {len(tda_sequences)} sequences, RAW has {len(raw_sequences)}.")
+        print(f"[FATAL âŒ] Length mismatch: TDA has {len(tda_sequences)} sequences, RAW has {len(raw_sequences)}.")
         print("These should be aligned per temporal window. Please verify preprocessing.")
         exit(1)
-
-
-
 
 
     assert all(len(seq) == 7 for seq in tda_sequences)
@@ -239,7 +246,7 @@ def train_and_log(task_key, network, X, y, diag):
 
     wandb.init(
         project="GraphPulse_RNN",
-        group=task_key,  # groups runs by task
+        group=task_key,
         name=run_name,
         job_type="training",
         tags=tags,
@@ -256,6 +263,7 @@ def train_and_log(task_key, network, X, y, diag):
 
     wandb_logger = WandbMetricsLogger()
     ensure_results_header()
+    ensure_runtime_header()   # <--- ADD THIS
     reset_random_seeds()
 
     # Split dataset
@@ -273,19 +281,18 @@ def train_and_log(task_key, network, X, y, diag):
 
     auc_cb = AUCCallback(validation_data=(X_val, y_val))
 
-    # ---- Start timing ----
-    start_time = time.time()
-    start_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
+    # ===== Total runtime: train + test + metrics =====
+    start_unix = time.time()
+    start_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_unix))
 
-    t0 = time.time()
-    model.fit(X_tr, y_tr, epochs=epochs, validation_data=(X_val, y_val),
-              callbacks=[auc_cb, wandb_logger], verbose=0)
-    elapsed = time.time() - t0
+    model.fit(
+        X_tr, y_tr,
+        epochs=epochs,
+        validation_data=(X_val, y_val),
+        callbacks=[auc_cb, wandb_logger],
+        verbose=0
+    )
 
-    end_time = time.time()
-    end_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time))
-
-    # ---- Evaluation ----
     y_pred = model.predict(X_te, verbose=0)
 
     loss_fn = tf.keras.losses.BinaryCrossentropy()
@@ -293,6 +300,14 @@ def train_and_log(task_key, network, X, y, diag):
     acc = float(np.mean((y_pred >= 0.5) == y_te))
     auc = float(tf.keras.metrics.AUC()(y_te, y_pred).numpy())
     roc_auc = float(roc_auc_score(y_te, y_pred))
+
+    end_unix = time.time()
+    end_datetime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_unix))
+    total_seconds = end_unix - start_unix
+
+    # <--- ADD THIS: write runtime row
+    with open(RUNTIME_FILE, "a") as f:
+        f.write(f"{task_key},{network},{start_datetime},{end_datetime},{total_seconds:.2f}\n")
 
     # ---- W&B logging ----
     wandb.log({
@@ -302,7 +317,7 @@ def train_and_log(task_key, network, X, y, diag):
         "test/roc_auc": roc_auc,
         "validation/auc_mean": auc_cb.get_auc_avg(),
         "validation/auc_std": auc_cb.get_auc_std(),
-        "runtime/train_time_sec": elapsed,
+        "runtime/train_test_total_sec": total_seconds,
         "dataset/num_samples": len(X),
         "dataset/label0_rate": diag["Label0Rate"],
         "dataset/label1_rate": diag["Label1Rate"],
@@ -310,11 +325,11 @@ def train_and_log(task_key, network, X, y, diag):
         "dataset/all_zero_raw": diag["AllZeroRAW"]
     })
 
-    # ---- Save to CSV ----
+    # ---- Save main results ----
     with open(RESULTS_FILE, "a") as f:
         f.write(
             f"{task_key},{network},{loss:.4f},{acc:.4f},{roc_auc:.4f},"
-            f"{auc_cb.get_auc_avg():.4f},{auc_cb.get_auc_std():.4f},{elapsed:.2f},"
+            f"{auc_cb.get_auc_avg():.4f},{auc_cb.get_auc_std():.4f},{total_seconds:.2f},"
             f"{len(X)},{LEARNING_RATE_DEFAULT},{diag['Label0']},{diag['Label1']},"
             f"{diag['Label0Rate']:.4f},{diag['Label1Rate']:.4f},{diag['AllZeroTDA']},"
             f"{diag['AllZeroRAW']},{diag['NonEmptyEither']},{diag['NonEmptyBoth']},"
@@ -333,7 +348,7 @@ def train_and_log(task_key, network, X, y, diag):
 # ============================================================
 
 if __name__ == "__main__":
-    for task_key in ["task2", "task3", "task1"]:
+    for task_key in ["task1", "task2", "task3"]:
         base_network = NETWORKS[0]
         print("We are using labels of ", base_network)
         for network in NETWORKS:
