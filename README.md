@@ -43,16 +43,33 @@ Edge color intensity indicates temporal proximity relative to the target edge: d
 
 The following table reports both the proposed TRicci scores and the standard weighted Forman–Ricci curvature (FRC) scores for the edges in the local neighborhood.
 
-| Edge | Date | Weight ($w_e$) | FRC | TRicci |
-|:---:|:---:|---:|---:|---:|
-| $e_6$ | Jan. 1 | 0.144 | -1.004 | 1.276 |
-| $e_7$ | Jan. 3 | 0.265 | -2.200 | 0.914 |
-| $e_8$ | Jan. 4 | 0.229 | -1.839 | 0.714 |
-| **$e_9$** | **Jan. 5** | **0.225** | **-5.331** | **0.496** |
-| $e_{10}$ | Jan. 6 | 0.238 | -3.610 | 0.828 |
-| $e_{11}$ | Jan. 7 | 0.292 | -4.373 | 0.919 |
-| $e_{12}$ | Jan. 8 | 0.281 | -3.894 | 1.280 |
-| $e_{13}$ | Jan. 9 | 0.252 | -3.565 | 1.252 |
+<table align="center">
+  <thead>
+    <tr>
+      <th>Edge</th>
+      <th>Date</th>
+      <th>Weight (w<sub>e</sub>)</th>
+      <th>FRC</th>
+      <th>TRicci</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>e<sub>6</sub></td><td>Jan. 1</td><td>0.144</td><td>-1.004</td><td>1.276</td></tr>
+    <tr><td>e<sub>7</sub></td><td>Jan. 3</td><td>0.265</td><td>-2.200</td><td>0.914</td></tr>
+    <tr><td>e<sub>8</sub></td><td>Jan. 4</td><td>0.229</td><td>-1.839</td><td>0.714</td></tr>
+    <tr>
+      <td><strong>e<sub>9</sub></strong></td>
+      <td><strong>Jan. 5</strong></td>
+      <td><strong>0.225</strong></td>
+      <td><strong>-5.331</strong></td>
+      <td><strong>0.496</strong></td>
+    </tr>
+    <tr><td>e<sub>10</sub></td><td>Jan. 6</td><td>0.238</td><td>-3.610</td><td>0.828</td></tr>
+    <tr><td>e<sub>11</sub></td><td>Jan. 7</td><td>0.292</td><td>-4.373</td><td>0.919</td></tr>
+    <tr><td>e<sub>12</sub></td><td>Jan. 8</td><td>0.281</td><td>-3.894</td><td>1.280</td></tr>
+    <tr><td>e<sub>13</sub></td><td>Jan. 9</td><td>0.252</td><td>-3.565</td><td>1.252</td></tr>
+  </tbody>
+</table>
 
 In this example, the target edge $e_9$ receives the lowest score under both formulations. This indicates that it is weakly supported relative to the surrounding interactions and is therefore a natural candidate for removal.
 
