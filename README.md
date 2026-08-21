@@ -31,7 +31,7 @@ To examine the behavior of curvature-based edge scoring in a local temporal neig
 
 Edge color intensity indicates temporal proximity relative to the target edge: darker edges represent interactions occurring closer in time to $e_9$, while lighter edges represent more temporally distant interactions. The temporal encoding is therefore defined relative to the inspected edge rather than as a globally ordered timestamp axis.
 
-![Local temporal neighborhood used for curvature analysis](toy_graph.pdf)
+![Local temporal neighborhood used for curvature analysis](figures/toy_graph.pdf)
 
 *Local temporal neighborhood used to analyze the curvature of the highlighted target edge $e_9$.*
 
