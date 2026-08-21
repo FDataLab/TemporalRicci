@@ -31,9 +31,15 @@ To examine the behavior of curvature-based edge scoring in a local temporal neig
 
 Edge color intensity indicates temporal proximity relative to the target edge: darker edges represent interactions occurring closer in time to $e_9$, while lighter edges represent more temporally distant interactions. The temporal encoding is therefore defined relative to the inspected edge rather than as a globally ordered timestamp axis.
 
-![Local temporal neighborhood used for curvature analysis](figures/toy_graph.png)
+<p align="center">
+  <img src="figures/toy_graph.png"
+       alt="Local temporal neighborhood used for curvature analysis"
+       width="600">
+</p>
 
-*Local temporal neighborhood used to analyze the curvature of the highlighted target edge $e_9$.*
+<p align="center">
+  <em>Local temporal neighborhood used to analyze the curvature of the highlighted target edge e₉.</em>
+</p>
 
 The following table reports both the proposed TRicci scores and the standard weighted Forman–Ricci curvature (FRC) scores for the edges in the local neighborhood.
 
