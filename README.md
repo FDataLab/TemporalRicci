@@ -1,29 +1,46 @@
 # TRicci: Temporal Ricci-Based Edge Sparsification for Dynamic Graph Learning
 
+**Accepted at the 35th ACM International Conference on Information and Knowledge Management (CIKM 2026), Rome, Italy.**
+
+**Paper:** [Edge Sparsification via Temporal Forman–Ricci Curvature for Dynamic Graph Learning](https://arxiv.org/abs/2608.07158)  
+**Authors:** Poupak Azad, Cuneyt Gurcan Akcora, Kiarash Shamsi  
+**Conference:** CIKM 2026, November 7–11, 2026  
+**Paper PDF:** [arXiv PDF](https://arxiv.org/pdf/2608.07158)
+
 This repository contains the implementation of **TRicci**, a Temporal Forman–Ricci curvature-based edge sparsification framework for dynamic graph learning.
 
-TRicci assigns an importance score to each directed, weighted, temporal edge by combining structural support, temporal proximity, and local interaction competition. The goal is to construct compact temporal graph representations that preserve downstream predictive performance while substantially reducing graph size and runtime.
+TRicci assigns an importance score to each directed, weighted, temporal edge by combining structural support, temporal proximity, and local interaction competition. It constructs compact temporal graph representations that preserve downstream predictive performance while substantially reducing graph size and runtime.
 
 ## Overview
 
-The framework processes temporal graphs as sequences of snapshots, computes TRicci scores for edges within each snapshot, ranks edges based on their curvature values, and retains the most informative curvature-ranked edges for downstream prediction.
+The framework processes temporal graphs as sequences of non-overlapping **7-day snapshots**. Within each snapshot, TRicci computes curvature-inspired importance scores, ranks edges by their scores, and selects task-relevant curvature-ranked edges for downstream prediction. In the main experiments, the default policy retains the highest-curvature **20%** of edges.
 
-The method is evaluated on graph-level temporal prediction tasks, including:
+The method is evaluated on three graph-level temporal prediction tasks:
 
 - Network activity growth prediction
 - Network participation expansion prediction
 - Influential node turnover prediction
 
-Experiments are conducted on blockchain transaction networks and TGBL benchmark datasets.
+Experiments cover **12 datasets**, comprising nine blockchain transaction networks and three TGBL benchmark datasets, and compare TRicci with MoG, TEDDY, and SEM under the same edge-retention budget.
+
+## Main Results
+
+At approximately **80% edge removal**, TRicci:
+
+- Preserves **97.7% ± 2.2%** of the full-graph ROC-AUC on average.
+- Achieves the best ROC-AUC in **27 of 30** reported dataset-task settings, including **all six** TGBL settings.
+- Reduces end-to-end runtime by **55.94%** on average, including sparsification, feature processing, and prediction.
+
+For comparison, the strongest competing method in predictive preservation, TEDDY, retains **89.4% ± 6.3%** of full-graph ROC-AUC under the same sparsification budget.
 
 ## Key Features
 
 - Temporal Forman–Ricci curvature computation for directed, weighted temporal graphs
 - Snapshot-level edge scoring and ranking
-- Curvature-based edge sparsification
-- Tau sensitivity analysis
+- Task-guided curvature-based edge sparsification
+- Temporal-decay parameter (τ) sensitivity analysis
 - RNN-based temporal prediction using LSTM/GRU models
-- ROC-AUC and runtime evaluation against baseline sparsification methods
+- ROC-AUC preservation and runtime comparisons with baseline sparsification methods
 
 ## Analysis of Curvature Scores in a Local Neighborhood
 
@@ -74,3 +91,19 @@ The following table reports both the proposed TRicci scores and the standard wei
 In this example, the target edge $e_9$ receives the lowest score under both formulations. This indicates that it is weakly supported relative to the surrounding interactions and is therefore a natural candidate for removal.
 
 However, this agreement should not be interpreted as a general property of the two methods. Standard weighted FRC evaluates only weighted local topology and does not explicitly model temporal proximity or directed temporal competition. In contrast, TRicci incorporates relative temporal distance and competition among outgoing neighboring edges into the scoring process. Consequently, the two formulations may rank edges differently in more complex temporal settings, where strong static connectivity does not necessarily imply strong temporal relevance.
+
+## Citation
+
+If you use TRicci in your research, please cite our CIKM 2026 paper:
+
+```bibtex
+@inproceedings{azad2026tricci,
+  title     = {Edge Sparsification via Temporal Forman-Ricci Curvature for Dynamic Graph Learning},
+  author    = {Azad, Poupak and Akcora, Cuneyt Gurcan and Shamsi, Kiarash},
+  booktitle = {Proceedings of the 35th ACM International Conference on Information and Knowledge Management},
+  year      = {2026},
+  doi       = {10.1145/3799682.3840790}
+}
+```
+
+**Preprint:** https://arxiv.org/abs/2608.07158
