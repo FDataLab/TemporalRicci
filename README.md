@@ -5,7 +5,7 @@
 **Paper:** [Edge Sparsification via Temporal Forman–Ricci Curvature for Dynamic Graph Learning](https://dl.acm.org/doi/10.1145/3799682.3840790)  
 **Authors:** Poupak Azad, Cuneyt Gurcan Akcora, Kiarash Shamsi  
 **Conference:** CIKM 2026, November 7–11, 2026  
-**Paper PDF:** [arXiv PDF](https://dl.acm.org/doi/10.1145/3799682.3840790)
+**Paper PDF:** [Download](https://dl.acm.org/doi/10.1145/3799682.3840790)
 
 This repository contains the implementation of **TRicci**, a Temporal Forman–Ricci curvature-based edge sparsification framework for dynamic graph learning.
 
